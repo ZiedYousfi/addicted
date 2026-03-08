@@ -116,7 +116,7 @@ func main() {
 	}
 
 	fmt.Printf("Dependencies number : %v\n", len(packageJSON.Dependencies))
-	for _, dep := range packageJSON.Dependencies {
+	for i, dep := range packageJSON.Dependencies {
 		fmt.Printf("Dependency : %s, version : %s\n", dep.Name, dep.Version)
 
 		latestVersion, err := getNPMPackageLatestVersion(dep.Name)
@@ -126,10 +126,13 @@ func main() {
 		}
 
 		fmt.Printf("Latest version of %s : %s\n", dep.Name, latestVersion)
+
+		dep.Version = latestVersion
+		packageJSON.Dependencies[i] = dep
 	}
 
 	fmt.Printf("DevDependencies number : %v\n", len(packageJSON.DevDependencies))
-	for _, dep := range packageJSON.DevDependencies {
+	for i, dep := range packageJSON.DevDependencies {
 		fmt.Printf("Dependency : %s, version : %s\n", dep.Name, dep.Version)
 		if dep.Name == "" {
 			fmt.Printf("Dependency name is nil, skipping...\n")
@@ -141,6 +144,30 @@ func main() {
 			continue
 		}
 
+		dep.Version = latestVersion
+		packageJSON.DevDependencies[i] = dep
+
 		fmt.Printf("Latest version of %s : %s\n", dep.Name, latestVersion)
 	}
+
+	dependenciesMap := make(map[string]string)
+	for _, dep := range packageJSON.Dependencies {
+		dependenciesMap[dep.Name] = dep.Version
+	}
+
+	devDependenciesMap := make(map[string]string)
+	for _, dep := range packageJSON.DevDependencies {
+		devDependenciesMap[dep.Name] = dep.Version
+	}
+
+	packageJSONFinal := PackageJSONRaw{
+		Dependencies:    dependenciesMap,
+		DevDependencies: devDependenciesMap,
+	}
+	finalJSON, err := json.MarshalIndent(packageJSONFinal, "", "  ")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Final JSON : %s\n", string(finalJSON))
 }
