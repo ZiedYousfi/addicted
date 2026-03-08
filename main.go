@@ -1,10 +1,34 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 )
+
+type PackageJSONRaw struct {
+	Dependencies    map[string]string `json:"dependencies"`
+	DevDependencies map[string]string `json:"devDependencies"`
+}
+
+type DependencieJSON struct {
+	Name    string
+	Version string
+}
+
+type PackageJSONDependencies struct {
+	Dependencies    []DependencieJSON
+	DevDependencies []DependencieJSON
+}
+
+func mapToDeps(m map[string]string) []DependencieJSON {
+	deps := make([]DependencieJSON, 0, len(m))
+	for name, version := range m {
+		deps = append(deps, DependencieJSON{Name: name, Version: version})
+	}
+	return deps
+}
 
 func main() {
 	fmt.Println("Hello, World!")
@@ -24,10 +48,6 @@ func main() {
 
 	for _, entry := range entries {
 		if !entry.IsDir() && entry.Name() == "package.json" {
-			if packagePath != "" {
-				log.Panic("Multiple package.json files found in the current directory.")
-			}
-
 			packagePath = entry.Name()
 			break
 		}
@@ -37,5 +57,24 @@ func main() {
 		log.Panic("No package.json file found in the current directory.")
 	}
 
-	fmt.Println(packagePath)
+	fmt.Printf("Found package.json : %s\n", packagePath)
+
+	packageJSONFile, err := os.Open(packagePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer packageJSONFile.Close()
+
+	var raw PackageJSONRaw
+	if err = json.NewDecoder(packageJSONFile).Decode(&raw); err != nil {
+		log.Fatal(err)
+	}
+
+	packageJSON := PackageJSONDependencies{
+		Dependencies:    mapToDeps(raw.Dependencies),
+		DevDependencies: mapToDeps(raw.DevDependencies),
+	}
+
+	fmt.Printf("Dependencies number : %v\n", len(packageJSON.Dependencies))
+	fmt.Printf("DevDependencies number : %v\n", len(packageJSON.DevDependencies))
 }
