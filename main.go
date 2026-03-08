@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 )
@@ -29,6 +30,30 @@ func mapToDeps(m map[string]string) []DependencieJSON {
 		deps = append(deps, DependencieJSON{Name: name, Version: version})
 	}
 	return deps
+}
+
+func getNPMPackageLatestVersion(packageName string) (string, error) {
+	url := "https://registry.npmjs.org/" + packageName + "/latest"
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("erreur requête : %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("status inattendu : %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Version string `json:"version"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("erreur décodage JSON : %w", err)
+	}
+
+	return result.Version, nil
 }
 
 func main() {
@@ -93,10 +118,29 @@ func main() {
 	fmt.Printf("Dependencies number : %v\n", len(packageJSON.Dependencies))
 	for _, dep := range packageJSON.Dependencies {
 		fmt.Printf("Dependency : %s, version : %s\n", dep.Name, dep.Version)
+
+		latestVersion, err := getNPMPackageLatestVersion(dep.Name)
+		if err != nil {
+			fmt.Printf("Error fetching latest version for %s: %v\n", dep.Name, err)
+			continue
+		}
+
+		fmt.Printf("Latest version of %s : %s\n", dep.Name, latestVersion)
 	}
 
 	fmt.Printf("DevDependencies number : %v\n", len(packageJSON.DevDependencies))
 	for _, dep := range packageJSON.DevDependencies {
 		fmt.Printf("Dependency : %s, version : %s\n", dep.Name, dep.Version)
+		if dep.Name == "" {
+			fmt.Printf("Dependency name is nil, skipping...\n")
+			continue
+		}
+		latestVersion, err := getNPMPackageLatestVersion(dep.Name)
+		if err != nil {
+			fmt.Printf("Error fetching latest version for %s: %v\n", dep.Name, err)
+			continue
+		}
+
+		fmt.Printf("Latest version of %s : %s\n", dep.Name, latestVersion)
 	}
 }
