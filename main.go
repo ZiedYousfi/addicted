@@ -13,7 +13,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println(dir)
+	fmt.Printf("Looking for package.json in : %s\n", dir)
 
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -24,6 +24,10 @@ func main() {
 
 	for _, entry := range entries {
 		if !entry.IsDir() && entry.Name() == "package.json" {
+			if packagePath != "" {
+				log.Panic("Multiple package.json files found in the current directory.")
+			}
+
 			packagePath = entry.Name()
 			break
 		}
