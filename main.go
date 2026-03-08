@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
-	"strings"
 )
 
 func main() {
@@ -17,27 +15,22 @@ func main() {
 	}
 	fmt.Println(dir)
 
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	packagePath := ""
 
-	err = filepath.Walk(".",
-		func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			if strings.Contains(path, "package.json") {
-				if packagePath != "" {
-					log.Panicf("Multiple package.json files found. Previous: %s, Current: %s\n", packagePath, path)
-				}
-				packagePath = path
-			}
-			return nil
-		})
-	if err != nil {
-		log.Println(err)
+	for _, entry := range entries {
+		if !entry.IsDir() && entry.Name() == "package.json" {
+			packagePath = entry.Name()
+			break
+		}
 	}
 
 	if packagePath == "" {
-		log.Panic("No package.json file found in the current directory or its subdirectories.")
+		log.Panic("No package.json file found in the current directory.")
 	}
 
 	fmt.Println(packagePath)
