@@ -85,14 +85,18 @@ func main() {
 
 	fmt.Printf("Found package.json : %s\n", packagePath)
 
-	packageJSONFile, err := os.Open(packagePath)
+	packageJSONFile, err := os.ReadFile(packagePath)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer packageJSONFile.Close()
 
 	var raw PackageJSONRaw
-	if err = json.NewDecoder(packageJSONFile).Decode(&raw); err != nil {
+	if err = json.Unmarshal(packageJSONFile, &raw); err != nil {
+		log.Fatal(err)
+	}
+
+	var packageJSONDocument map[string]any
+	if err = json.Unmarshal(packageJSONFile, &packageJSONDocument); err != nil {
 		log.Fatal(err)
 	}
 
@@ -160,14 +164,22 @@ func main() {
 		devDependenciesMap[dep.Name] = dep.Version
 	}
 
-	packageJSONFinal := PackageJSONRaw{
-		Dependencies:    dependenciesMap,
-		DevDependencies: devDependenciesMap,
+	if raw.Dependencies != nil || packageJSONDocument["dependencies"] != nil {
+		packageJSONDocument["dependencies"] = dependenciesMap
 	}
-	finalJSON, err := json.MarshalIndent(packageJSONFinal, "", "  ")
+
+	if raw.DevDependencies != nil || packageJSONDocument["devDependencies"] != nil {
+		packageJSONDocument["devDependencies"] = devDependenciesMap
+	}
+
+	finalJSON, err := json.MarshalIndent(packageJSONDocument, "", "  ")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("Final JSON : %s\n", string(finalJSON))
+	if err := os.WriteFile(packagePath, append(finalJSON, '\n'), 0644); err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Updated %s with final JSON\n", packagePath)
 }
