@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            archive: tar.gz
+          - goos: linux
+            goarch: arm64
+            archive: tar.gz
+          - goos: darwin
+            goarch: amd64
+            archive: tar.gz
+          - goos: darwin
+            goarch: arm64
+            archive: tar.gz
+          - goos: windows
+            goarch: amd64
+            archive: zip
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build release binary
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+
+          binary_name="addicted"
+          if [ "$GOOS" = "windows" ]; then
+            binary_name="${binary_name}.exe"
+          fi
+
+          output_dir="dist/addicted_${{ github.event.release.tag_name }}_${GOOS}_${GOARCH}"
+          mkdir -p "$output_dir"
+
+          go build -trimpath -ldflags "-s -w" -o "$output_dir/$binary_name" .
+
+          asset_path="$output_dir"
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            archive_path="${output_dir}.zip"
+            (
+              cd dist
+              zip -r "$(basename "$archive_path")" "$(basename "$output_dir")"
+            )
+            asset_path="$archive_path"
+          else
+            archive_path="${output_dir}.tar.gz"
+            tar -C dist -czf "$archive_path" "$(basename "$output_dir")"
+            asset_path="$archive_path"
+          fi
+
+          echo "ASSET_PATH=$asset_path" >> "$GITHUB_ENV"
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ASSET_PATH }}
