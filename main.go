@@ -57,8 +57,6 @@ func scanProjectFiles(entries []os.DirEntry, process func(TypeOfProject, string)
 }
 
 func main() {
-	fmt.Println("Hello, World!")
-
 	dir, err := os.Getwd()
 	if err != nil {
 		log.Fatal(err)
@@ -78,6 +76,6 @@ func main() {
 	})
 
 	if !foundSupported {
-		log.Panic("No supported project file found in the current directory.")
+		log.Fatal("No supported project file found in the current directory.")
 	}
 }
