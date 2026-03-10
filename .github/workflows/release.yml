@@ -4,6 +4,12 @@ on:
   release:
     types:
       - published
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to attach assets to
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -40,6 +46,21 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Determine asset tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "release" ]; then
+            release_tag="${{ github.event.release.tag_name }}"
+          elif [ -n "${{ inputs.release_tag }}" ]; then
+            release_tag="${{ inputs.release_tag }}"
+          else
+            release_tag="manual-${{ github.run_number }}"
+          fi
+
+          echo "RELEASE_TAG=$release_tag" >> "$GITHUB_ENV"
+
       - name: Build release binary
         shell: bash
         env:
@@ -55,7 +76,7 @@ jobs:
             binary_name="${binary_name}.exe"
           fi
 
-          output_dir="dist/addicted_${{ github.event.release.tag_name }}_${GOOS}_${GOARCH}"
+          output_dir="dist/addicted_${RELEASE_TAG}_${GOOS}_${GOARCH}"
           mkdir -p "$output_dir"
 
           go build -trimpath -ldflags "-s -w" -o "$output_dir/$binary_name" .
@@ -75,8 +96,18 @@ jobs:
           fi
 
           echo "ASSET_PATH=$asset_path" >> "$GITHUB_ENV"
+          echo "ASSET_NAME=$(basename "$asset_path")" >> "$GITHUB_ENV"
+
+      - name: Upload workflow artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET_NAME }}
+          path: ${{ env.ASSET_PATH }}
 
       - name: Upload release asset
+        if: github.event_name == 'release' || inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           files: ${{ env.ASSET_PATH }}
