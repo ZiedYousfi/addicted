@@ -125,17 +125,21 @@ func TestUpdateDependencies(t *testing.T) {
 		{Name: "broken", Version: "3.0.0"},
 	}
 
-	updateDependencies(deps)
-
+	err := updateDependencies(deps)
+	if err == nil {
+		t.Fatalf("expected error on broken package fetch, got nil")
+	}
 	if deps[0].Version != "1.3.0" {
 		t.Fatalf("expected successful dependency to update, got %q", deps[0].Version)
 	}
 	if deps[1].Version != "2.0.0" {
 		t.Fatalf("expected empty-name dependency to be skipped, got %q", deps[1].Version)
 	}
+	// The error should be due to the third dep (broken), so value should still be the old version
 	if deps[2].Version != "3.0.0" {
 		t.Fatalf("expected failed lookup dependency to keep its version, got %q", deps[2].Version)
 	}
+
 }
 
 func TestGetNPMPackageLatestVersion(t *testing.T) {
@@ -382,7 +386,7 @@ func TestScanProjectFiles(t *testing.T) {
 		}
 
 		processed := make(map[string]TypeOfProject)
-		foundSupported := scanProjectFiles(entries, func(projectType TypeOfProject, projectFilePath string) error {
+		foundSupported, _ := scanProjectFiles(entries, func(projectType TypeOfProject, projectFilePath string) error {
 			processed[projectFilePath] = projectType
 			return nil
 		})
@@ -420,7 +424,7 @@ func TestScanProjectFiles(t *testing.T) {
 		}
 
 		called := false
-		foundSupported := scanProjectFiles(entries, func(projectType TypeOfProject, projectFilePath string) error {
+		foundSupported, _ := scanProjectFiles(entries, func(projectType TypeOfProject, projectFilePath string) error {
 			called = true
 			return nil
 		})
@@ -449,7 +453,7 @@ func TestScanProjectFiles(t *testing.T) {
 		}
 
 		processed := make([]string, 0, 2)
-		foundSupported := scanProjectFiles(entries, func(projectType TypeOfProject, projectFilePath string) error {
+		foundSupported, _ := scanProjectFiles(entries, func(projectType TypeOfProject, projectFilePath string) error {
 			processed = append(processed, projectFilePath)
 			if projectFilePath == "package.json" {
 				return errors.New("boom")
@@ -473,7 +477,7 @@ func TestScanProjectFiles(t *testing.T) {
 		}
 
 		processed := make([]string, 0, 1)
-		foundSupported := scanProjectFiles(entries, func(projectType TypeOfProject, projectFilePath string) error {
+		foundSupported, _ := scanProjectFiles(entries, func(projectType TypeOfProject, projectFilePath string) error {
 			processed = append(processed, projectFilePath)
 			if projectType != NPM {
 				t.Fatalf("expected NPM project type, got %v", projectType)

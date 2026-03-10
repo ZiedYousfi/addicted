@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/charmbracelet/log"
 	"net/http"
 	"net/url"
 	"os"
@@ -75,24 +76,24 @@ func normalizeDependencyVersions(deps []DependencyJSON) {
 	}
 }
 
-func updateDependencies(deps []DependencyJSON) {
+func updateDependencies(deps []DependencyJSON) error {
 	for i, dep := range deps {
-		fmt.Printf("Dependency : %s, version : %s\n", dep.Name, dep.Version)
+		log.Infof("Dependency : %s, version : %s", dep.Name, dep.Version)
 		if dep.Name == "" {
-			fmt.Printf("Dependency name is empty, skipping...\n")
+			log.Warnf("Dependency name is empty, skipping...")
 			continue
 		}
 
 		latestVersion, err := getNPMPackageLatestVersion(dep.Name)
 		if err != nil {
-			fmt.Printf("Error fetching latest version for %s: %v\n", dep.Name, err)
-			continue
+			return fmt.Errorf("failed to fetch latest version for %s: %w", dep.Name, err)
 		}
 
-		fmt.Printf("Latest version of %s : %s\n", dep.Name, latestVersion)
+		log.Infof("Latest version of %s : %s", dep.Name, latestVersion)
 		dep.Version = latestVersion
 		deps[i] = dep
 	}
+	return nil
 }
 
 func depsToMap(deps []DependencyJSON) map[string]string {
@@ -127,11 +128,15 @@ func processNPMPackage(packagePath string) error {
 	normalizeDependencyVersions(packageJSON.Dependencies)
 	normalizeDependencyVersions(packageJSON.DevDependencies)
 
-	fmt.Printf("Dependencies number : %v\n", len(packageJSON.Dependencies))
-	updateDependencies(packageJSON.Dependencies)
+	log.Infof("Dependencies number : %v", len(packageJSON.Dependencies))
+	if err := updateDependencies(packageJSON.Dependencies); err != nil {
+		return fmt.Errorf("failed to update dependencies: %w", err)
+	}
 
-	fmt.Printf("DevDependencies number : %v\n", len(packageJSON.DevDependencies))
-	updateDependencies(packageJSON.DevDependencies)
+	log.Infof("DevDependencies number : %v", len(packageJSON.DevDependencies))
+	if err := updateDependencies(packageJSON.DevDependencies); err != nil {
+		return fmt.Errorf("failed to update devDependencies: %w", err)
+	}
 
 	if raw.Dependencies != nil || packageJSONDocument["dependencies"] != nil {
 		packageJSONDocument["dependencies"] = depsToMap(packageJSON.Dependencies)
@@ -150,6 +155,6 @@ func processNPMPackage(packagePath string) error {
 		return err
 	}
 
-	fmt.Printf("Updated %s with final JSON\n", packagePath)
+	log.Infof("Updated %v with final JSON", packagePath)
 	return nil
 }

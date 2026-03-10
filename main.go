@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"github.com/charmbracelet/log"
 	"os"
 )
 
@@ -32,7 +32,7 @@ func processProjectFileByType(projectType TypeOfProject, projectFilePath string)
 	}
 }
 
-func scanProjectFiles(entries []os.DirEntry, process func(TypeOfProject, string) error) bool {
+func scanProjectFiles(entries []os.DirEntry, process func(TypeOfProject, string) error) (bool, error) {
 	foundSupported := false
 
 	for _, entry := range entries {
@@ -46,34 +46,41 @@ func scanProjectFiles(entries []os.DirEntry, process func(TypeOfProject, string)
 		}
 
 		foundSupported = true
-		fmt.Printf("Found project file : %s\n", entry.Name())
+		log.Infof("Found project file : %s", entry.Name())
 
 		if err := process(projectType, entry.Name()); err != nil {
-			log.Printf("Error processing project file %s: %v\n", entry.Name(), err)
+			return foundSupported, fmt.Errorf("error processing project file %s: %w", entry.Name(), err)
 		}
 	}
 
-	return foundSupported
+	return foundSupported, nil
 }
 
 func main() {
+	log.SetLevel(log.InfoLevel)
+
 	dir, err := os.Getwd()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("Looking for project files in : %s\n", dir)
+	log.Infof("Looking for project files in : %s", dir)
 
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	foundSupported := scanProjectFiles(entries, func(projectType TypeOfProject, projectFilePath string) error {
+	foundSupported, err := scanProjectFiles(entries, func(projectType TypeOfProject, projectFilePath string) error {
 		Ctx.ProjectType = projectType
 		Ctx.ProjectFilePath = projectFilePath
 		return processProjectFile()
 	})
+
+	if err != nil {
+		log.Errorf("Project processing failed: %v", err)
+		os.Exit(1)
+	}
 
 	if !foundSupported {
 		log.Fatal("No supported project file found in the current directory.")
