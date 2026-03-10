@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
+	"time"
 )
 
 type PackageJSONRaw struct {
@@ -32,16 +34,20 @@ func mapToDeps(m map[string]string) []DependencieJSON {
 }
 
 func getNPMPackageLatestVersion(packageName string) (string, error) {
-	url := "https://registry.npmjs.org/" + packageName + "/latest"
+	registryURL := "https://registry.npmjs.org/" + url.PathEscape(packageName) + "/latest"
+	client := Ctx.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 5 * time.Second}
+	}
 
-	resp, err := http.Get(url)
+	resp, err := client.Get(registryURL)
 	if err != nil {
-		return "", fmt.Errorf("erreur requete : %w", err)
+		return "", fmt.Errorf("request error: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("status inattendu : %d", resp.StatusCode)
+		return "", fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
 
 	var result struct {
@@ -49,7 +55,7 @@ func getNPMPackageLatestVersion(packageName string) (string, error) {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("erreur decodage JSON : %w", err)
+		return "", fmt.Errorf("JSON decode error: %w", err)
 	}
 
 	return result.Version, nil
