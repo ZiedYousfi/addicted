@@ -18,19 +18,45 @@ func processCargoPackage(packagePath string) error {
 }
 
 func processProjectFile() error {
-	switch Ctx.ProjectType {
+	return processProjectFileByType(Ctx.ProjectType, Ctx.ProjectFilePath)
+}
+
+func processProjectFileByType(projectType TypeOfProject, projectFilePath string) error {
+	switch projectType {
 	case NPM:
-		return processNPMPackage(Ctx.ProjectFilePath)
+		return processNPMPackage(projectFilePath)
 	case Cargo:
-		return processCargoPackage(Ctx.ProjectFilePath)
+		return processCargoPackage(projectFilePath)
 	default:
-		return fmt.Errorf("unsupported project type for %s", Ctx.ProjectFilePath)
+		return fmt.Errorf("unsupported project type for %s", projectFilePath)
 	}
 }
 
-func main() {
-	fmt.Println("Hello, World!")
+func scanProjectFiles(entries []os.DirEntry, process func(TypeOfProject, string) error) bool {
+	foundSupported := false
 
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		projectType, ok := FileForTypeOfProject[entry.Name()]
+		if !ok {
+			continue
+		}
+
+		foundSupported = true
+		fmt.Printf("Found project file : %s\n", entry.Name())
+
+		if err := process(projectType, entry.Name()); err != nil {
+			log.Printf("Error processing project file %s: %v\n", entry.Name(), err)
+		}
+	}
+
+	return foundSupported
+}
+
+func main() {
 	dir, err := os.Getwd()
 	if err != nil {
 		log.Fatal(err)
@@ -43,27 +69,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		projectType, ok := FileForTypeOfProject[entry.Name()]
-		if !ok {
-			continue
-		}
-
-		fmt.Printf("Found project file : %s\n", entry.Name())
-
+	foundSupported := scanProjectFiles(entries, func(projectType TypeOfProject, projectFilePath string) error {
 		Ctx.ProjectType = projectType
-		Ctx.ProjectFilePath = entry.Name()
+		Ctx.ProjectFilePath = projectFilePath
+		return processProjectFile()
+	})
 
-		if err := processProjectFile(); err != nil {
-			log.Printf("Error processing project file %s: %v\n", entry.Name(), err)
-		}
-	}
-
-	if Ctx.ProjectType == NotSupported {
-		log.Panic("No supported project file found in the current directory.")
+	if !foundSupported {
+		log.Fatal("No supported project file found in the current directory.")
 	}
 }
