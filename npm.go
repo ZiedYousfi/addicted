@@ -62,10 +62,15 @@ func getNPMPackageLatestVersion(packageName string) (string, error) {
 }
 
 func normalizeDependencyVersions(deps []DependencyJSON) {
+	prefixes := []string{"^", "~", ">=", "<=", ">", "<", "=", "*"}
+
 	for i, dep := range deps {
-		if strings.Contains(dep.Version, "^") {
-			dep.Version, _ = strings.CutPrefix(dep.Version, "^")
-			deps[i] = dep
+		for _, prefix := range prefixes {
+			if normalizedVersion, ok := strings.CutPrefix(dep.Version, prefix); ok {
+				dep.Version = normalizedVersion
+				deps[i] = dep
+				break
+			}
 		}
 	}
 }
