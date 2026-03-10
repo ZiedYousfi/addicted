@@ -20,7 +20,7 @@ type Context struct {
 }
 
 var Ctx = Context{
-	ProjectType:     NPM,
-	ProjectFilePath: "package.json",
+	ProjectType:     NotSupported,
+	ProjectFilePath: "",
 	HTTPClient:      &http.Client{Timeout: 5 * time.Second},
 }

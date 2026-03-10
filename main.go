@@ -43,8 +43,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	Ctx.ProjectType = NotSupported
-
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue

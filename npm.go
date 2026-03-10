@@ -15,20 +15,20 @@ type PackageJSONRaw struct {
 	DevDependencies map[string]string `json:"devDependencies"`
 }
 
-type DependencieJSON struct {
+type DependencyJSON struct {
 	Name    string
 	Version string
 }
 
 type PackageJSONDependencies struct {
-	Dependencies    []DependencieJSON
-	DevDependencies []DependencieJSON
+	Dependencies    []DependencyJSON
+	DevDependencies []DependencyJSON
 }
 
-func mapToDeps(m map[string]string) []DependencieJSON {
-	deps := make([]DependencieJSON, 0, len(m))
+func mapToDeps(m map[string]string) []DependencyJSON {
+	deps := make([]DependencyJSON, 0, len(m))
 	for name, version := range m {
-		deps = append(deps, DependencieJSON{Name: name, Version: version})
+		deps = append(deps, DependencyJSON{Name: name, Version: version})
 	}
 	return deps
 }
@@ -61,7 +61,7 @@ func getNPMPackageLatestVersion(packageName string) (string, error) {
 	return result.Version, nil
 }
 
-func normalizeDependencyVersions(deps []DependencieJSON) {
+func normalizeDependencyVersions(deps []DependencyJSON) {
 	for i, dep := range deps {
 		if strings.Contains(dep.Version, "^") {
 			dep.Version, _ = strings.CutPrefix(dep.Version, "^")
@@ -70,11 +70,11 @@ func normalizeDependencyVersions(deps []DependencieJSON) {
 	}
 }
 
-func updateDependencies(deps []DependencieJSON) {
+func updateDependencies(deps []DependencyJSON) {
 	for i, dep := range deps {
 		fmt.Printf("Dependency : %s, version : %s\n", dep.Name, dep.Version)
 		if dep.Name == "" {
-			fmt.Printf("Dependency name is nil, skipping...\n")
+			fmt.Printf("Dependency name is empty, skipping...\n")
 			continue
 		}
 
@@ -90,7 +90,7 @@ func updateDependencies(deps []DependencieJSON) {
 	}
 }
 
-func depsToMap(deps []DependencieJSON) map[string]string {
+func depsToMap(deps []DependencyJSON) map[string]string {
 	depsMap := make(map[string]string, len(deps))
 	for _, dep := range deps {
 		depsMap[dep.Name] = dep.Version
