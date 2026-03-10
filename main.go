@@ -57,6 +57,8 @@ func scanProjectFiles(entries []os.DirEntry, process func(TypeOfProject, string)
 }
 
 func main() {
+	log.SetLevel(log.InfoLevel)
+
 	dir, err := os.Getwd()
 	if err != nil {
 		log.Fatal(err)
