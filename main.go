@@ -6,13 +6,6 @@ import (
 	"os"
 )
 
-type TypeOfProject int
-
-const (
-	NPM TypeOfProject = iota
-	Cargo
-)
-
 // Do not change it (maps in go can't be constants)
 var FileForTypeOfProject = map[string]TypeOfProject{
 	"package.json": NPM,
@@ -24,14 +17,14 @@ func processCargoPackage(packagePath string) error {
 	return nil
 }
 
-func processProjectFile(projectType TypeOfProject, filePath string) error {
-	switch projectType {
+func processProjectFile() error {
+	switch Ctx.ProjectType {
 	case NPM:
-		return processNPMPackage(filePath)
+		return processNPMPackage(Ctx.ProjectFilePath)
 	case Cargo:
-		return processCargoPackage(filePath)
+		return processCargoPackage(Ctx.ProjectFilePath)
 	default:
-		return fmt.Errorf("unsupported project type for %s", filePath)
+		return fmt.Errorf("unsupported project type for %s", Ctx.ProjectFilePath)
 	}
 }
 
@@ -42,6 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	fmt.Printf("Looking for project files in : %s\n", dir)
 
 	entries, err := os.ReadDir(".")
@@ -49,7 +43,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	foundProjectFile := false
+	Ctx.ProjectType = NotSupported
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -61,15 +55,17 @@ func main() {
 			continue
 		}
 
-		foundProjectFile = true
 		fmt.Printf("Found project file : %s\n", entry.Name())
 
-		if err := processProjectFile(projectType, entry.Name()); err != nil {
-			log.Fatal(err)
+		Ctx.ProjectType = projectType
+		Ctx.ProjectFilePath = entry.Name()
+
+		if err := processProjectFile(); err != nil {
+			log.Printf("Error processing project file %s: %v\n", entry.Name(), err)
 		}
 	}
 
-	if !foundProjectFile {
+	if Ctx.ProjectType == NotSupported {
 		log.Panic("No supported project file found in the current directory.")
 	}
 }
