@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"github.com/charmbracelet/log"
 	"os"
 )
 
@@ -46,10 +46,10 @@ func scanProjectFiles(entries []os.DirEntry, process func(TypeOfProject, string)
 		}
 
 		foundSupported = true
-		fmt.Printf("Found project file : %s\n", entry.Name())
+		log.Infof("Found project file : %s", entry.Name())
 
 		if err := process(projectType, entry.Name()); err != nil {
-			log.Printf("Error processing project file %s: %v\n", entry.Name(), err)
+			log.Errorf("Error processing project file %s : %v", entry.Name(), err)
 		}
 	}
 
@@ -62,7 +62,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("Looking for project files in : %s\n", dir)
+	log.Infof("Looking for project files in : %s", dir)
 
 	entries, err := os.ReadDir(".")
 	if err != nil {
