@@ -32,7 +32,7 @@ func processProjectFileByType(projectType TypeOfProject, projectFilePath string)
 	}
 }
 
-func scanProjectFiles(entries []os.DirEntry, process func(TypeOfProject, string) error) bool {
+func scanProjectFiles(entries []os.DirEntry, process func(TypeOfProject, string) error) (bool, error) {
 	foundSupported := false
 
 	for _, entry := range entries {
@@ -49,11 +49,11 @@ func scanProjectFiles(entries []os.DirEntry, process func(TypeOfProject, string)
 		log.Infof("Found project file : %s", entry.Name())
 
 		if err := process(projectType, entry.Name()); err != nil {
-			log.Errorf("Error processing project file %s : %v", entry.Name(), err)
+			return foundSupported, fmt.Errorf("error processing project file %s: %w", entry.Name(), err)
 		}
 	}
 
-	return foundSupported
+	return foundSupported, nil
 }
 
 func main() {
@@ -71,11 +71,16 @@ func main() {
 		log.Fatal(err)
 	}
 
-	foundSupported := scanProjectFiles(entries, func(projectType TypeOfProject, projectFilePath string) error {
+	foundSupported, err := scanProjectFiles(entries, func(projectType TypeOfProject, projectFilePath string) error {
 		Ctx.ProjectType = projectType
 		Ctx.ProjectFilePath = projectFilePath
 		return processProjectFile()
 	})
+
+	if err != nil {
+		log.Errorf("Project processing failed: %v", err)
+		os.Exit(1)
+	}
 
 	if !foundSupported {
 		log.Fatal("No supported project file found in the current directory.")

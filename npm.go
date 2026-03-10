@@ -76,7 +76,7 @@ func normalizeDependencyVersions(deps []DependencyJSON) {
 	}
 }
 
-func updateDependencies(deps []DependencyJSON) {
+func updateDependencies(deps []DependencyJSON) error {
 	for i, dep := range deps {
 		log.Infof("Dependency : %s, version : %s", dep.Name, dep.Version)
 		if dep.Name == "" {
@@ -86,14 +86,14 @@ func updateDependencies(deps []DependencyJSON) {
 
 		latestVersion, err := getNPMPackageLatestVersion(dep.Name)
 		if err != nil {
-			log.Errorf("Error fetching latest version for %s: %v", dep.Name, err)
-			continue
+			return fmt.Errorf("failed to fetch latest version for %s: %w", dep.Name, err)
 		}
 
 		log.Infof("Latest version of %s : %s", dep.Name, latestVersion)
 		dep.Version = latestVersion
 		deps[i] = dep
 	}
+	return nil
 }
 
 func depsToMap(deps []DependencyJSON) map[string]string {
@@ -129,10 +129,14 @@ func processNPMPackage(packagePath string) error {
 	normalizeDependencyVersions(packageJSON.DevDependencies)
 
 	log.Infof("Dependencies number : %v", len(packageJSON.Dependencies))
-	updateDependencies(packageJSON.Dependencies)
+	if err := updateDependencies(packageJSON.Dependencies); err != nil {
+		return fmt.Errorf("failed to update dependencies: %w", err)
+	}
 
 	log.Infof("DevDependencies number : %v", len(packageJSON.DevDependencies))
-	updateDependencies(packageJSON.DevDependencies)
+	if err := updateDependencies(packageJSON.DevDependencies); err != nil {
+		return fmt.Errorf("failed to update devDependencies: %w", err)
+	}
 
 	if raw.Dependencies != nil || packageJSONDocument["dependencies"] != nil {
 		packageJSONDocument["dependencies"] = depsToMap(packageJSON.Dependencies)
