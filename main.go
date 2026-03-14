@@ -1,9 +1,11 @@
 package main
 
 import (
+	"flag"
 	"fmt"
-	"github.com/charmbracelet/log"
 	"os"
+
+	"github.com/charmbracelet/log"
 )
 
 // Do not change it (maps in go can't be constants)
@@ -57,7 +59,18 @@ func scanProjectFiles(entries []os.DirEntry, process func(TypeOfProject, string)
 }
 
 func main() {
-	log.SetLevel(log.InfoLevel)
+	log.SetLevel(log.WarnLevel)
+
+	flag.BoolVar(&Ctx.DryRun, "dry-run", false, "Perform a dry run without making any changes")
+	flag.BoolVar(&Ctx.DryRun, "d", false, "Perform a dry run without making any changes (shorthand)")
+	flag.BoolVar(&Ctx.Verbose, "verbose", false, "Enable verbose logging")
+	flag.BoolVar(&Ctx.Verbose, "v", false, "Enable verbose logging (shorthand)")
+
+	flag.Parse()
+
+	if Ctx.Verbose {
+		log.SetLevel(log.DebugLevel)
+	}
 
 	dir, err := os.Getwd()
 	if err != nil {
