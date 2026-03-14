@@ -19,10 +19,6 @@ func processCargoPackage(packagePath string) error {
 	return nil
 }
 
-func processProjectFile() error {
-	return processProjectFileByType(Ctx.ProjectType, Ctx.ProjectFilePath)
-}
-
 func processProjectFileByType(projectType TypeOfProject, projectFilePath string) error {
 	switch projectType {
 	case NPM:
@@ -87,7 +83,7 @@ func main() {
 	foundSupported, err := scanProjectFiles(entries, func(projectType TypeOfProject, projectFilePath string) error {
 		Ctx.ProjectType = projectType
 		Ctx.ProjectFilePath = projectFilePath
-		return processProjectFile()
+		return processProjectFileByType(Ctx.ProjectType, Ctx.ProjectFilePath)
 	})
 
 	if err != nil {

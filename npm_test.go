@@ -462,10 +462,10 @@ func TestProcessNPMPackage(t *testing.T) {
 	})
 }
 
-func TestProcessProjectFile(t *testing.T) {
+func TestProcessProjectFileByType(t *testing.T) {
 	withTestContext(t, Context{ProjectType: NotSupported, ProjectFilePath: "unknown.lock"})
 
-	err := processProjectFile()
+	err := processProjectFileByType(Ctx.ProjectType, Ctx.ProjectFilePath)
 	if err == nil {
 		t.Fatal("expected unsupported project type to return an error")
 	}
