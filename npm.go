@@ -151,10 +151,14 @@ func processNPMPackage(packagePath string) error {
 		return err
 	}
 
-	if err := os.WriteFile(packagePath, append(finalJSON, '\n'), 0644); err != nil {
-		return err
+	if Ctx.DryRun == false {
+		if err := os.WriteFile(packagePath, append(finalJSON, '\n'), 0644); err != nil {
+			return err
+		}
+		log.Infof("Updated %v with final JSON", packagePath)
+	} else {
+		log.Infof("Dry run enabled, not writing changes to %v", packagePath)
 	}
 
-	log.Infof("Updated %v with final JSON", packagePath)
 	return nil
 }
