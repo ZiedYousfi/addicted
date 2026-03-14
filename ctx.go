@@ -1,7 +1,9 @@
 package main
 
 import (
+	"io"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -17,6 +19,7 @@ type Context struct {
 	ProjectType     TypeOfProject
 	ProjectFilePath string
 	HTTPClient      *http.Client
+	Output          io.Writer
 
 	// Flags
 	DryRun  bool
@@ -27,6 +30,7 @@ var Ctx = Context{
 	ProjectType:     NotSupported,
 	ProjectFilePath: "",
 	HTTPClient:      &http.Client{Timeout: 5 * time.Second},
+	Output:          os.Stdout,
 	DryRun:          false,
 	Verbose:         false,
 }

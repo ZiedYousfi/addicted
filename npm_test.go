@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -151,9 +152,12 @@ func TestUpdateDependencies(t *testing.T) {
 		{Name: "broken", Version: parseDependencyVersion("3.0.0")},
 	}
 
-	err := updateDependencies(deps)
+	updates, err := updateDependencies(deps)
 	if err == nil {
 		t.Fatalf("expected error on broken package fetch, got nil")
+	}
+	if len(updates) != 0 {
+		t.Fatalf("expected no updates to be returned on error, got %v", updates)
 	}
 	if deps[0].Version.String() != "1.3.0" {
 		t.Fatalf("expected successful dependency to update, got %q", deps[0].Version.String())
@@ -203,8 +207,12 @@ func TestUpdateDependenciesSkipsNoopAndDowngrade(t *testing.T) {
 		{Name: "prefixed", Version: parseDependencyVersion("^1.2.0")},
 	}
 
-	if err := updateDependencies(deps); err != nil {
+	updates, err := updateDependencies(deps)
+	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(updates) != 2 {
+		t.Fatalf("expected 2 updates, got %d", len(updates))
 	}
 
 	if deps[0].Version.String() != "1.0.0" {
@@ -361,7 +369,8 @@ func TestProcessNPMPackage(t *testing.T) {
 			_, _ = io.WriteString(w, `{"version":"`+version+`"}`)
 		})
 
-		withTestContext(t, Context{HTTPClient: client})
+		var output bytes.Buffer
+		withTestContext(t, Context{HTTPClient: client, Output: &output})
 
 		if err := processNPMPackage(packagePath); err != nil {
 			t.Fatalf("expected no error, got %v", err)
@@ -401,6 +410,19 @@ func TestProcessNPMPackage(t *testing.T) {
 		}
 		if document["private"] != true {
 			t.Fatalf("expected private field to be preserved, got %v", document["private"])
+		}
+
+		printed := output.String()
+		for _, expected := range []string{
+			"Updated dependencies in " + packagePath + ":",
+			"- react: ^18.2.0 -> ^18.3.1 (minor)",
+			"- @scope/pkg: ~1.0.0 -> ~1.2.3 (minor)",
+			"Updated devDependencies in " + packagePath + ":",
+			"- vitest: >=1.5.0 -> >=1.6.0 (minor)",
+		} {
+			if !strings.Contains(printed, expected) {
+				t.Fatalf("expected output to contain %q, got %q", expected, printed)
+			}
 		}
 	})
 
