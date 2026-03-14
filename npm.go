@@ -34,6 +34,12 @@ type PackageJSONDependencies struct {
 	DevDependencies []DependencyJSON
 }
 
+type DependencyUpdate struct {
+	Name   string
+	Before DependencyVersion
+	After  DependencyVersion
+}
+
 func (v DependencyVersion) String() string {
 	if v.HasSemver {
 		return v.Prefix + v.Semver.String()
@@ -116,9 +122,52 @@ func getNPMPackageLatestVersion(packageName string) (string, error) {
 	return result.Version, nil
 }
 
-func updateDependencies(deps []DependencyJSON) error {
+func outputLogger() *log.Logger {
+	if Ctx.Logger != nil {
+		return Ctx.Logger
+	}
+
+	return log.Default()
+}
+
+func formatDependencyDiff(before DependencyVersion, after DependencyVersion) string {
+	if before.HasSemver && after.HasSemver {
+		if before.Prefix == "" && after.Prefix == "" {
+			return before.Semver.Diff(after.Semver)
+		}
+
+		return fmt.Sprintf("%s -> %s (%s)", before.String(), after.String(), before.Semver.ChangeType(after.Semver))
+	}
+
+	return fmt.Sprintf("%s -> %s", before.String(), after.String())
+}
+
+func (update DependencyUpdate) String() string {
+	return fmt.Sprintf("%s: %s", update.Name, formatDependencyDiff(update.Before, update.After))
+}
+
+func printDependencyUpdates(packagePath string, section string, updates []DependencyUpdate) {
+	if len(updates) == 0 {
+		return
+	}
+
+	action := "Updated"
+	if Ctx.DryRun {
+		action = "Would update"
+	}
+
+	logger := outputLogger()
+	logger.Print(action + " " + section + " in " + packagePath + ":")
+	for _, update := range updates {
+		logger.Print("- " + update.String())
+	}
+}
+
+func updateDependencies(deps []DependencyJSON) ([]DependencyUpdate, error) {
+	updates := make([]DependencyUpdate, 0)
+
 	for i, dep := range deps {
-		log.Infof("Dependency : %s, version : %s", dep.Name, dep.Version.String())
+		log.Debugf("Dependency : %s, version : %s", dep.Name, dep.Version.String())
 		if dep.Name == "" {
 			log.Warnf("Dependency name is empty, skipping...")
 			continue
@@ -126,11 +175,11 @@ func updateDependencies(deps []DependencyJSON) error {
 
 		latestVersionString, err := getNPMPackageLatestVersion(dep.Name)
 		if err != nil {
-			return fmt.Errorf("failed to fetch latest version for %s: %w", dep.Name, err)
+			return nil, fmt.Errorf("failed to fetch latest version for %s: %w", dep.Name, err)
 		}
 
 		latestVersion := parseDependencyVersion(latestVersionString)
-		log.Infof("Latest version of %s : %s", dep.Name, latestVersion.String())
+		log.Debugf("Latest version of %s : %s", dep.Name, latestVersion.String())
 
 		changeType, shouldUpdate := classifyDependencyUpdate(dep.Version, latestVersion)
 		if changeType == SemverChangeDowngrade {
@@ -139,16 +188,16 @@ func updateDependencies(deps []DependencyJSON) error {
 		}
 
 		if !shouldUpdate {
-			log.Infof("Dependency %s already up to date (%s)", dep.Name, changeType)
+			log.Debugf("Dependency %s already up to date (%s)", dep.Name, changeType)
 			continue
 		}
 
 		updatedVersion := mergeDependencyVersion(dep.Version, latestVersion)
-		log.Infof("Updating %s with %s change: %s -> %s", dep.Name, changeType, dep.Version.String(), updatedVersion.String())
+		updates = append(updates, DependencyUpdate{Name: dep.Name, Before: dep.Version, After: updatedVersion})
 		dep.Version = updatedVersion
 		deps[i] = dep
 	}
-	return nil
+	return updates, nil
 }
 
 func classifyDependencyUpdate(currentVersion DependencyVersion, latestVersion DependencyVersion) (SemverChange, bool) {
@@ -214,12 +263,14 @@ func processNPMPackage(packagePath string) error {
 	}
 
 	log.Infof("Dependencies number : %v", len(packageJSON.Dependencies))
-	if err := updateDependencies(packageJSON.Dependencies); err != nil {
+	dependencyUpdates, err := updateDependencies(packageJSON.Dependencies)
+	if err != nil {
 		return fmt.Errorf("failed to update dependencies: %w", err)
 	}
 
 	log.Infof("DevDependencies number : %v", len(packageJSON.DevDependencies))
-	if err := updateDependencies(packageJSON.DevDependencies); err != nil {
+	devDependencyUpdates, err := updateDependencies(packageJSON.DevDependencies)
+	if err != nil {
 		return fmt.Errorf("failed to update devDependencies: %w", err)
 	}
 
@@ -244,6 +295,9 @@ func processNPMPackage(packagePath string) error {
 	} else {
 		log.Infof("Dry run enabled, not writing changes to %v", packagePath)
 	}
+
+	printDependencyUpdates(packagePath, "dependencies", dependencyUpdates)
+	printDependencyUpdates(packagePath, "devDependencies", devDependencyUpdates)
 
 	return nil
 }

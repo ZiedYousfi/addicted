@@ -92,6 +92,9 @@ func TestSemverHelpers(t *testing.T) {
 	if !(Semver{Major: 1, Minor: 2, Patch: 3}).IsRevisionUpdate(Semver{Major: 1, Minor: 2, Patch: 3, Revision: 1, HasRevision: true}) {
 		t.Fatal("expected IsRevisionUpdate to report true")
 	}
+	if diff := left.Diff(right); diff != "1.2.3 -> 1.2.4 (patch)" {
+		t.Fatalf("Diff() = %q, want %q", diff, "1.2.3 -> 1.2.4 (patch)")
+	}
 }
 
 func TestCompareSemver(t *testing.T) {

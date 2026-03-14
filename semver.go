@@ -255,6 +255,10 @@ func (s Semver) String() string {
 	return builder.String()
 }
 
+func (s Semver) Diff(other Semver) string {
+	return fmt.Sprintf("%s -> %s (%s)", s.String(), other.String(), s.ChangeType(other))
+}
+
 func CompareSemver(left string, right string) (int, error) {
 	leftSemver, err := ParseSemver(left)
 	if err != nil {
