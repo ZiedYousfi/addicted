@@ -1,6 +1,6 @@
-.PHONY: test test_js all
+.PHONY: test testjs all
 
-all: test test_js
+all: test testjs
 
 test:
 	go test ./...
