@@ -96,6 +96,7 @@ func TestParseDependencyVersion(t *testing.T) {
 	}{
 		{name: "caret", input: "^1.0.0", wantString: "^1.0.0", wantPrefix: "^", wantSemver: true},
 		{name: "tilde revision", input: "~1.2.3_1", wantString: "~1.2.3_1", wantPrefix: "~", wantSemver: true},
+		{name: "wildcard", input: "*", wantString: "*", wantPrefix: "", wantSemver: false},
 		{name: "gte", input: ">=3.0.0", wantString: ">=3.0.0", wantPrefix: ">=", wantSemver: true},
 		{name: "plain", input: "9.0.0", wantString: "9.0.0", wantPrefix: "", wantSemver: true},
 		{name: "workspace", input: "workspace:*", wantString: "workspace:*", wantPrefix: "", wantSemver: false},
@@ -177,10 +178,11 @@ func TestUpdateDependenciesSkipsNoopAndDowngrade(t *testing.T) {
 		}
 
 		versions := map[string]string{
-			"same-version":     "1.0.0",
-			"underscore-style": "1.2.4",
-			"downgrade":        "1.9.9",
-			"prefixed":         "1.3.0",
+			"same-version":       "1.0.0",
+			"underscore-style":   "1.2.4",
+			"same-core-revision": "1.2.3",
+			"downgrade":          "1.9.9",
+			"prefixed":           "1.3.0",
 		}
 
 		version, ok := versions[pkgName]
@@ -196,6 +198,7 @@ func TestUpdateDependenciesSkipsNoopAndDowngrade(t *testing.T) {
 	deps := []DependencyJSON{
 		{Name: "same-version", Version: parseDependencyVersion("1.0.0")},
 		{Name: "underscore-style", Version: parseDependencyVersion("1.2.3_1")},
+		{Name: "same-core-revision", Version: parseDependencyVersion("1.2.3_1")},
 		{Name: "downgrade", Version: parseDependencyVersion("2.0.0")},
 		{Name: "prefixed", Version: parseDependencyVersion("^1.2.0")},
 	}
@@ -207,14 +210,17 @@ func TestUpdateDependenciesSkipsNoopAndDowngrade(t *testing.T) {
 	if deps[0].Version.String() != "1.0.0" {
 		t.Fatalf("expected same-version dependency to stay unchanged, got %q", deps[0].Version.String())
 	}
-	if deps[1].Version.String() != "1.2.4_1" {
-		t.Fatalf("expected underscore semver dependency to update with preserved revision, got %q", deps[1].Version.String())
+	if deps[1].Version.String() != "1.2.4" {
+		t.Fatalf("expected new base version to drop stale revision, got %q", deps[1].Version.String())
 	}
-	if deps[2].Version.String() != "2.0.0" {
-		t.Fatalf("expected downgrade dependency to stay unchanged, got %q", deps[2].Version.String())
+	if deps[2].Version.String() != "1.2.3_1" {
+		t.Fatalf("expected same semantic core to preserve revision, got %q", deps[2].Version.String())
 	}
-	if deps[3].Version.String() != "^1.3.0" {
-		t.Fatalf("expected prefixed dependency to preserve prefix, got %q", deps[3].Version.String())
+	if deps[3].Version.String() != "2.0.0" {
+		t.Fatalf("expected downgrade dependency to stay unchanged, got %q", deps[3].Version.String())
+	}
+	if deps[4].Version.String() != "^1.3.0" {
+		t.Fatalf("expected prefixed dependency to preserve prefix, got %q", deps[4].Version.String())
 	}
 }
 

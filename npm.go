@@ -67,6 +67,10 @@ func parseDependencyVersion(value string) DependencyVersion {
 }
 
 func extractDependencyVersionPrefix(value string) (string, string) {
+	if value == "*" {
+		return "", value
+	}
+
 	prefixes := []string{"<=", ">=", "^", "~", ">", "<", "=", "*"}
 	for _, prefix := range prefixes {
 		if rest, ok := strings.CutPrefix(value, prefix); ok {
@@ -163,7 +167,10 @@ func classifyDependencyUpdate(currentVersion DependencyVersion, latestVersion De
 func mergeDependencyVersion(currentVersion DependencyVersion, latestVersion DependencyVersion) DependencyVersion {
 	if currentVersion.HasSemver && latestVersion.HasSemver {
 		mergedSemver := latestVersion.Semver
-		if currentVersion.Semver.HasRevision && !latestVersion.Semver.HasRevision {
+		// Keep a revision suffix only when both versions refer to the same
+		// semantic core; otherwise an old revision would be carried onto a new
+		// base version like 1.2.4_1.
+		if currentVersion.Semver.HasRevision && !latestVersion.Semver.HasRevision && semverCoreEqual(currentVersion.Semver, latestVersion.Semver) {
 			mergedSemver.Revision = currentVersion.Semver.Revision
 			mergedSemver.HasRevision = true
 		}
@@ -171,6 +178,10 @@ func mergeDependencyVersion(currentVersion DependencyVersion, latestVersion Depe
 	}
 
 	return latestVersion
+}
+
+func semverCoreEqual(left Semver, right Semver) bool {
+	return left.Major == right.Major && left.Minor == right.Minor && left.Patch == right.Patch
 }
 
 func depsToMap(deps []DependencyJSON) map[string]string {
