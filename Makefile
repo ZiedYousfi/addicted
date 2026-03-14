@@ -1,4 +1,4 @@
-.PHONY: test dry-run
+.PHONY: test test_js all
 
 all: test test_js
 
