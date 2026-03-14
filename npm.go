@@ -167,7 +167,7 @@ func updateDependencies(deps []DependencyJSON) ([]DependencyUpdate, error) {
 	updates := make([]DependencyUpdate, 0)
 
 	for i, dep := range deps {
-		log.Infof("Dependency : %s, version : %s", dep.Name, dep.Version.String())
+		log.Debugf("Dependency : %s, version : %s", dep.Name, dep.Version.String())
 		if dep.Name == "" {
 			log.Warnf("Dependency name is empty, skipping...")
 			continue
@@ -179,7 +179,7 @@ func updateDependencies(deps []DependencyJSON) ([]DependencyUpdate, error) {
 		}
 
 		latestVersion := parseDependencyVersion(latestVersionString)
-		log.Infof("Latest version of %s : %s", dep.Name, latestVersion.String())
+		log.Debugf("Latest version of %s : %s", dep.Name, latestVersion.String())
 
 		changeType, shouldUpdate := classifyDependencyUpdate(dep.Version, latestVersion)
 		if changeType == SemverChangeDowngrade {
@@ -188,12 +188,11 @@ func updateDependencies(deps []DependencyJSON) ([]DependencyUpdate, error) {
 		}
 
 		if !shouldUpdate {
-			log.Infof("Dependency %s already up to date (%s)", dep.Name, changeType)
+			log.Debugf("Dependency %s already up to date (%s)", dep.Name, changeType)
 			continue
 		}
 
 		updatedVersion := mergeDependencyVersion(dep.Version, latestVersion)
-		log.Infof("Updating %s with %s change: %s -> %s", dep.Name, changeType, dep.Version.String(), updatedVersion.String())
 		updates = append(updates, DependencyUpdate{Name: dep.Name, Before: dep.Version, After: updatedVersion})
 		dep.Version = updatedVersion
 		deps[i] = dep
