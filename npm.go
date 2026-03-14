@@ -3,12 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/charmbracelet/log"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
 
 type PackageJSONRaw struct {
@@ -16,9 +17,16 @@ type PackageJSONRaw struct {
 	DevDependencies map[string]string `json:"devDependencies"`
 }
 
+type DependencyVersion struct {
+	Raw       string
+	Prefix    string
+	Semver    Semver
+	HasSemver bool
+}
+
 type DependencyJSON struct {
 	Name    string
-	Version string
+	Version DependencyVersion
 }
 
 type PackageJSONDependencies struct {
@@ -26,10 +34,56 @@ type PackageJSONDependencies struct {
 	DevDependencies []DependencyJSON
 }
 
+func (v DependencyVersion) String() string {
+	if v.HasSemver {
+		return v.Prefix + v.Semver.String()
+	}
+	return v.Raw
+}
+
+func (v DependencyVersion) WithSemver(semver Semver) DependencyVersion {
+	return DependencyVersion{
+		Raw:       v.Prefix + semver.String(),
+		Prefix:    v.Prefix,
+		Semver:    semver,
+		HasSemver: true,
+	}
+}
+
+func parseDependencyVersion(value string) DependencyVersion {
+	trimmed := strings.TrimSpace(value)
+	prefix, coreVersion := extractDependencyVersionPrefix(trimmed)
+	semver, err := ParseSemver(coreVersion)
+	if err != nil {
+		return DependencyVersion{Raw: trimmed}
+	}
+
+	return DependencyVersion{
+		Raw:       trimmed,
+		Prefix:    prefix,
+		Semver:    semver,
+		HasSemver: true,
+	}
+}
+
+func extractDependencyVersionPrefix(value string) (string, string) {
+	if value == "*" {
+		return "", value
+	}
+
+	prefixes := []string{"<=", ">=", "^", "~", ">", "<", "=", "*"}
+	for _, prefix := range prefixes {
+		if rest, ok := strings.CutPrefix(value, prefix); ok {
+			return prefix, rest
+		}
+	}
+	return "", value
+}
+
 func mapToDeps(m map[string]string) []DependencyJSON {
 	deps := make([]DependencyJSON, 0, len(m))
 	for name, version := range m {
-		deps = append(deps, DependencyJSON{Name: name, Version: version})
+		deps = append(deps, DependencyJSON{Name: name, Version: parseDependencyVersion(version)})
 	}
 	return deps
 }
@@ -62,44 +116,78 @@ func getNPMPackageLatestVersion(packageName string) (string, error) {
 	return result.Version, nil
 }
 
-func normalizeDependencyVersions(deps []DependencyJSON) {
-	prefixes := []string{"^", "~", ">=", "<=", ">", "<", "=", "*"}
-
-	for i, dep := range deps {
-		for _, prefix := range prefixes {
-			if normalizedVersion, ok := strings.CutPrefix(dep.Version, prefix); ok {
-				dep.Version = normalizedVersion
-				deps[i] = dep
-				break
-			}
-		}
-	}
-}
-
 func updateDependencies(deps []DependencyJSON) error {
 	for i, dep := range deps {
-		log.Infof("Dependency : %s, version : %s", dep.Name, dep.Version)
+		log.Infof("Dependency : %s, version : %s", dep.Name, dep.Version.String())
 		if dep.Name == "" {
 			log.Warnf("Dependency name is empty, skipping...")
 			continue
 		}
 
-		latestVersion, err := getNPMPackageLatestVersion(dep.Name)
+		latestVersionString, err := getNPMPackageLatestVersion(dep.Name)
 		if err != nil {
 			return fmt.Errorf("failed to fetch latest version for %s: %w", dep.Name, err)
 		}
 
-		log.Infof("Latest version of %s : %s", dep.Name, latestVersion)
-		dep.Version = latestVersion
+		latestVersion := parseDependencyVersion(latestVersionString)
+		log.Infof("Latest version of %s : %s", dep.Name, latestVersion.String())
+
+		changeType, shouldUpdate := classifyDependencyUpdate(dep.Version, latestVersion)
+		if changeType == SemverChangeDowngrade {
+			log.Warnf("Dependency %s current version %s is newer than registry latest %s, keeping current version", dep.Name, dep.Version.String(), latestVersion.String())
+			continue
+		}
+
+		if !shouldUpdate {
+			log.Infof("Dependency %s already up to date (%s)", dep.Name, changeType)
+			continue
+		}
+
+		updatedVersion := mergeDependencyVersion(dep.Version, latestVersion)
+		log.Infof("Updating %s with %s change: %s -> %s", dep.Name, changeType, dep.Version.String(), updatedVersion.String())
+		dep.Version = updatedVersion
 		deps[i] = dep
 	}
 	return nil
 }
 
+func classifyDependencyUpdate(currentVersion DependencyVersion, latestVersion DependencyVersion) (SemverChange, bool) {
+	if currentVersion.HasSemver && latestVersion.HasSemver {
+		changeType := currentVersion.Semver.ChangeType(latestVersion.Semver)
+		return changeType, changeType != SemverChangeNone && changeType != SemverChangeDowngrade
+	}
+
+	if currentVersion.String() == latestVersion.String() {
+		return SemverChangeNone, false
+	}
+
+	return SemverChangeInvalid, true
+}
+
+func mergeDependencyVersion(currentVersion DependencyVersion, latestVersion DependencyVersion) DependencyVersion {
+	if currentVersion.HasSemver && latestVersion.HasSemver {
+		mergedSemver := latestVersion.Semver
+		// Keep a revision suffix only when both versions refer to the same
+		// semantic core; otherwise an old revision would be carried onto a new
+		// base version like 1.2.4_1.
+		if currentVersion.Semver.HasRevision && !latestVersion.Semver.HasRevision && semverCoreEqual(currentVersion.Semver, latestVersion.Semver) {
+			mergedSemver.Revision = currentVersion.Semver.Revision
+			mergedSemver.HasRevision = true
+		}
+		return currentVersion.WithSemver(mergedSemver)
+	}
+
+	return latestVersion
+}
+
+func semverCoreEqual(left Semver, right Semver) bool {
+	return left.Major == right.Major && left.Minor == right.Minor && left.Patch == right.Patch
+}
+
 func depsToMap(deps []DependencyJSON) map[string]string {
 	depsMap := make(map[string]string, len(deps))
 	for _, dep := range deps {
-		depsMap[dep.Name] = dep.Version
+		depsMap[dep.Name] = dep.Version.String()
 	}
 	return depsMap
 }
@@ -125,9 +213,6 @@ func processNPMPackage(packagePath string) error {
 		DevDependencies: mapToDeps(raw.DevDependencies),
 	}
 
-	normalizeDependencyVersions(packageJSON.Dependencies)
-	normalizeDependencyVersions(packageJSON.DevDependencies)
-
 	log.Infof("Dependencies number : %v", len(packageJSON.Dependencies))
 	if err := updateDependencies(packageJSON.Dependencies); err != nil {
 		return fmt.Errorf("failed to update dependencies: %w", err)
@@ -151,7 +236,7 @@ func processNPMPackage(packagePath string) error {
 		return err
 	}
 
-	if Ctx.DryRun == false {
+	if !Ctx.DryRun {
 		if err := os.WriteFile(packagePath, append(finalJSON, '\n'), 0644); err != nil {
 			return err
 		}

@@ -55,13 +55,25 @@ func newRegistryClient(t *testing.T, handler http.HandlerFunc) *http.Client {
 
 func TestMapToDepsAndDepsToMapRoundTrip(t *testing.T) {
 	depsMap := map[string]string{
-		"react":  "18.3.1",
+		"react":  "^18.3.1",
 		"vitest": "1.6.0",
 	}
 
 	deps := mapToDeps(depsMap)
 	if len(deps) != len(depsMap) {
 		t.Fatalf("expected %d dependencies, got %d", len(depsMap), len(deps))
+	}
+
+	for _, dep := range deps {
+		if dep.Name != "react" {
+			continue
+		}
+		if !dep.Version.HasSemver {
+			t.Fatal("expected react version to parse as semver")
+		}
+		if dep.Version.Prefix != "^" {
+			t.Fatalf("expected react prefix %q, got %q", "^", dep.Version.Prefix)
+		}
 	}
 
 	roundTrip := depsToMap(deps)
@@ -74,27 +86,35 @@ func TestMapToDepsAndDepsToMapRoundTrip(t *testing.T) {
 	}
 }
 
-func TestNormalizeDependencyVersions(t *testing.T) {
-	deps := []DependencyJSON{
-		{Name: "caret", Version: "^1.0.0"},
-		{Name: "tilde", Version: "~2.0.0"},
-		{Name: "gte", Version: ">=3.0.0"},
-		{Name: "lte", Version: "<=4.0.0"},
-		{Name: "gt", Version: ">5.0.0"},
-		{Name: "lt", Version: "<6.0.0"},
-		{Name: "eq", Version: "=7.0.0"},
-		{Name: "wildcard", Version: "*8.0.0"},
-		{Name: "plain", Version: "9.0.0"},
-		{Name: "range", Version: "1.0.0 || 2.0.0"},
+func TestParseDependencyVersion(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		wantString string
+		wantPrefix string
+		wantSemver bool
+	}{
+		{name: "caret", input: "^1.0.0", wantString: "^1.0.0", wantPrefix: "^", wantSemver: true},
+		{name: "tilde revision", input: "~1.2.3_1", wantString: "~1.2.3_1", wantPrefix: "~", wantSemver: true},
+		{name: "wildcard", input: "*", wantString: "*", wantPrefix: "", wantSemver: false},
+		{name: "gte", input: ">=3.0.0", wantString: ">=3.0.0", wantPrefix: ">=", wantSemver: true},
+		{name: "plain", input: "9.0.0", wantString: "9.0.0", wantPrefix: "", wantSemver: true},
+		{name: "workspace", input: "workspace:*", wantString: "workspace:*", wantPrefix: "", wantSemver: false},
 	}
 
-	normalizeDependencyVersions(deps)
-
-	want := []string{"1.0.0", "2.0.0", "3.0.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0", "8.0.0", "9.0.0", "1.0.0 || 2.0.0"}
-	for i, dep := range deps {
-		if dep.Version != want[i] {
-			t.Fatalf("dependency %q: expected version %q, got %q", dep.Name, want[i], dep.Version)
-		}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := parseDependencyVersion(test.input)
+			if got.String() != test.wantString {
+				t.Fatalf("parseDependencyVersion().String() = %q, want %q", got.String(), test.wantString)
+			}
+			if got.Prefix != test.wantPrefix {
+				t.Fatalf("parseDependencyVersion().Prefix = %q, want %q", got.Prefix, test.wantPrefix)
+			}
+			if got.HasSemver != test.wantSemver {
+				t.Fatalf("parseDependencyVersion().HasSemver = %v, want %v", got.HasSemver, test.wantSemver)
+			}
+		})
 	}
 }
 
@@ -110,6 +130,12 @@ func TestUpdateDependencies(t *testing.T) {
 		switch pkgName {
 		case "left-pad":
 			_, _ = io.WriteString(w, `{"version":"1.3.0"}`)
+		case "same-version":
+			_, _ = io.WriteString(w, `{"version":"1.0.0"}`)
+		case "underscore-style":
+			_, _ = io.WriteString(w, `{"version":"1.2.4"}`)
+		case "downgrade":
+			_, _ = io.WriteString(w, `{"version":"1.9.9"}`)
 		case "broken":
 			http.Error(w, "boom", http.StatusBadGateway)
 		default:
@@ -120,26 +146,111 @@ func TestUpdateDependencies(t *testing.T) {
 	withTestContext(t, Context{HTTPClient: client})
 
 	deps := []DependencyJSON{
-		{Name: "left-pad", Version: "1.1.0"},
-		{Name: "", Version: "2.0.0"},
-		{Name: "broken", Version: "3.0.0"},
+		{Name: "left-pad", Version: parseDependencyVersion("1.1.0")},
+		{Name: "", Version: parseDependencyVersion("2.0.0")},
+		{Name: "broken", Version: parseDependencyVersion("3.0.0")},
 	}
 
 	err := updateDependencies(deps)
 	if err == nil {
 		t.Fatalf("expected error on broken package fetch, got nil")
 	}
-	if deps[0].Version != "1.3.0" {
-		t.Fatalf("expected successful dependency to update, got %q", deps[0].Version)
+	if deps[0].Version.String() != "1.3.0" {
+		t.Fatalf("expected successful dependency to update, got %q", deps[0].Version.String())
 	}
-	if deps[1].Version != "2.0.0" {
-		t.Fatalf("expected empty-name dependency to be skipped, got %q", deps[1].Version)
+	if deps[1].Version.String() != "2.0.0" {
+		t.Fatalf("expected empty-name dependency to be skipped, got %q", deps[1].Version.String())
 	}
 	// The error should be due to the third dep (broken), so value should still be the old version
-	if deps[2].Version != "3.0.0" {
-		t.Fatalf("expected failed lookup dependency to keep its version, got %q", deps[2].Version)
+	if deps[2].Version.String() != "3.0.0" {
+		t.Fatalf("expected failed lookup dependency to keep its version, got %q", deps[2].Version.String())
 	}
 
+}
+
+func TestUpdateDependenciesSkipsNoopAndDowngrade(t *testing.T) {
+	client := newRegistryClient(t, func(w http.ResponseWriter, r *http.Request) {
+		pkgPath := strings.TrimPrefix(r.URL.EscapedPath(), "/")
+		pkgPath = strings.TrimSuffix(pkgPath, "/latest")
+		pkgName, err := url.PathUnescape(pkgPath)
+		if err != nil {
+			t.Fatalf("unescape package path: %v", err)
+		}
+
+		versions := map[string]string{
+			"same-version":       "1.0.0",
+			"underscore-style":   "1.2.4",
+			"same-core-revision": "1.2.3",
+			"downgrade":          "1.9.9",
+			"prefixed":           "1.3.0",
+		}
+
+		version, ok := versions[pkgName]
+		if !ok {
+			t.Fatalf("unexpected package request: %s", pkgName)
+		}
+
+		_, _ = io.WriteString(w, `{"version":"`+version+`"}`)
+	})
+
+	withTestContext(t, Context{HTTPClient: client})
+
+	deps := []DependencyJSON{
+		{Name: "same-version", Version: parseDependencyVersion("1.0.0")},
+		{Name: "underscore-style", Version: parseDependencyVersion("1.2.3_1")},
+		{Name: "same-core-revision", Version: parseDependencyVersion("1.2.3_1")},
+		{Name: "downgrade", Version: parseDependencyVersion("2.0.0")},
+		{Name: "prefixed", Version: parseDependencyVersion("^1.2.0")},
+	}
+
+	if err := updateDependencies(deps); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if deps[0].Version.String() != "1.0.0" {
+		t.Fatalf("expected same-version dependency to stay unchanged, got %q", deps[0].Version.String())
+	}
+	if deps[1].Version.String() != "1.2.4" {
+		t.Fatalf("expected new base version to drop stale revision, got %q", deps[1].Version.String())
+	}
+	if deps[2].Version.String() != "1.2.3_1" {
+		t.Fatalf("expected same semantic core to preserve revision, got %q", deps[2].Version.String())
+	}
+	if deps[3].Version.String() != "2.0.0" {
+		t.Fatalf("expected downgrade dependency to stay unchanged, got %q", deps[3].Version.String())
+	}
+	if deps[4].Version.String() != "^1.3.0" {
+		t.Fatalf("expected prefixed dependency to preserve prefix, got %q", deps[4].Version.String())
+	}
+}
+
+func TestClassifyDependencyUpdate(t *testing.T) {
+	tests := []struct {
+		name       string
+		current    DependencyVersion
+		latest     DependencyVersion
+		wantType   SemverChange
+		wantUpdate bool
+	}{
+		{name: "patch", current: parseDependencyVersion("1.2.3"), latest: parseDependencyVersion("1.2.4"), wantType: SemverChangePatch, wantUpdate: true},
+		{name: "none", current: parseDependencyVersion("1.2.3"), latest: parseDependencyVersion("1.2.3"), wantType: SemverChangeNone, wantUpdate: false},
+		{name: "downgrade", current: parseDependencyVersion("2.0.0"), latest: parseDependencyVersion("1.9.9"), wantType: SemverChangeDowngrade, wantUpdate: false},
+		{name: "revision", current: parseDependencyVersion("1.2.3"), latest: parseDependencyVersion("1.2.3_1"), wantType: SemverChangeRevision, wantUpdate: true},
+		{name: "invalid fallback same", current: parseDependencyVersion("workspace:*"), latest: parseDependencyVersion("workspace:*"), wantType: SemverChangeNone, wantUpdate: false},
+		{name: "invalid fallback different", current: parseDependencyVersion("workspace:*"), latest: parseDependencyVersion("2.0.0"), wantType: SemverChangeInvalid, wantUpdate: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			gotType, gotUpdate := classifyDependencyUpdate(test.current, test.latest)
+			if gotType != test.wantType {
+				t.Fatalf("classifyDependencyUpdate() type = %q, want %q", gotType, test.wantType)
+			}
+			if gotUpdate != test.wantUpdate {
+				t.Fatalf("classifyDependencyUpdate() update = %v, want %v", gotUpdate, test.wantUpdate)
+			}
+		})
+	}
 }
 
 func TestGetNPMPackageLatestVersion(t *testing.T) {
@@ -273,7 +384,7 @@ func TestProcessNPMPackage(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected dependencies object, got %T", document["dependencies"])
 		}
-		if deps["react"] != "18.3.1" || deps["@scope/pkg"] != "1.2.3" {
+		if deps["react"] != "^18.3.1" || deps["@scope/pkg"] != "~1.2.3" {
 			t.Fatalf("unexpected dependency versions: %v", deps)
 		}
 
@@ -281,7 +392,7 @@ func TestProcessNPMPackage(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected devDependencies object, got %T", document["devDependencies"])
 		}
-		if devDeps["vitest"] != "1.6.0" {
+		if devDeps["vitest"] != ">=1.6.0" {
 			t.Fatalf("unexpected devDependency versions: %v", devDeps)
 		}
 
