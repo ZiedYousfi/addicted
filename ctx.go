@@ -1,10 +1,10 @@
 package main
 
 import (
-	"io"
 	"net/http"
-	"os"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
 
 type TypeOfProject int
@@ -19,7 +19,7 @@ type Context struct {
 	ProjectType     TypeOfProject
 	ProjectFilePath string
 	HTTPClient      *http.Client
-	Output          io.Writer
+	Logger          *log.Logger
 
 	// Flags
 	DryRun  bool
@@ -30,7 +30,7 @@ var Ctx = Context{
 	ProjectType:     NotSupported,
 	ProjectFilePath: "",
 	HTTPClient:      &http.Client{Timeout: 5 * time.Second},
-	Output:          os.Stdout,
+	Logger:          log.Default(),
 	DryRun:          false,
 	Verbose:         false,
 }

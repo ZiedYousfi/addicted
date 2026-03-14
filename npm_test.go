@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -52,6 +54,14 @@ func newRegistryClient(t *testing.T, handler http.HandlerFunc) *http.Client {
 			return http.DefaultTransport.RoundTrip(cloned)
 		}),
 	}
+}
+
+func newTestLogger(output io.Writer) *log.Logger {
+	return log.NewWithOptions(output, log.Options{
+		Level:           log.DebugLevel,
+		ReportTimestamp: false,
+		ReportCaller:    false,
+	})
 }
 
 func TestMapToDepsAndDepsToMapRoundTrip(t *testing.T) {
@@ -370,7 +380,7 @@ func TestProcessNPMPackage(t *testing.T) {
 		})
 
 		var output bytes.Buffer
-		withTestContext(t, Context{HTTPClient: client, Output: &output})
+		withTestContext(t, Context{HTTPClient: client, Logger: newTestLogger(&output)})
 
 		if err := processNPMPackage(packagePath); err != nil {
 			t.Fatalf("expected no error, got %v", err)

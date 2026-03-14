@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -123,12 +122,12 @@ func getNPMPackageLatestVersion(packageName string) (string, error) {
 	return result.Version, nil
 }
 
-func outputWriter() io.Writer {
-	if Ctx.Output != nil {
-		return Ctx.Output
+func outputLogger() *log.Logger {
+	if Ctx.Logger != nil {
+		return Ctx.Logger
 	}
 
-	return os.Stdout
+	return log.Default()
 }
 
 func formatDependencyDiff(before DependencyVersion, after DependencyVersion) string {
@@ -157,9 +156,10 @@ func printDependencyUpdates(packagePath string, section string, updates []Depend
 		action = "Would update"
 	}
 
-	_, _ = fmt.Fprintf(outputWriter(), "%s %s in %s:\n", action, section, packagePath)
+	logger := outputLogger()
+	logger.Print(action + " " + section + " in " + packagePath + ":")
 	for _, update := range updates {
-		_, _ = fmt.Fprintf(outputWriter(), "- %s\n", update.String())
+		logger.Print("- " + update.String())
 	}
 }
 
