@@ -59,6 +59,7 @@ func main() {
 
 	flag.BoolVar(&Ctx.DryRun, "dry-run", false, "Perform a dry run without making any changes")
 	flag.BoolVar(&Ctx.DryRun, "d", false, "Perform a dry run without making any changes (shorthand)")
+	flag.BoolVar(&Ctx.PatchOnly, "patch-only", false, "Only update patch versions")
 	flag.BoolVar(&Ctx.Verbose, "verbose", false, "Enable verbose logging")
 	flag.BoolVar(&Ctx.Verbose, "v", false, "Enable verbose logging (shorthand)")
 
