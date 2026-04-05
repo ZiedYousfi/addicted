@@ -188,7 +188,7 @@ func updateDependencies(deps []DependencyJSON) ([]DependencyUpdate, error) {
 		}
 
 		if !shouldUpdate {
-			log.Debugf("Dependency %s already up to date (%s)", dep.Name, changeType)
+			log.Debugf("Dependency %s won't update (%s)", dep.Name, changeType)
 			continue
 		}
 
@@ -203,6 +203,9 @@ func updateDependencies(deps []DependencyJSON) ([]DependencyUpdate, error) {
 func classifyDependencyUpdate(currentVersion DependencyVersion, latestVersion DependencyVersion) (SemverChange, bool) {
 	if currentVersion.HasSemver && latestVersion.HasSemver {
 		changeType := currentVersion.Semver.ChangeType(latestVersion.Semver)
+		if Ctx.PatchOnly && (changeType != SemverChangePatch || changeType == SemverChangeRevision) {
+			return changeType, false
+		}
 		return changeType, changeType != SemverChangeNone && changeType != SemverChangeDowngrade
 	}
 
