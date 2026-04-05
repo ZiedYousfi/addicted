@@ -213,6 +213,11 @@ func classifyDependencyUpdate(currentVersion DependencyVersion, latestVersion De
 		return SemverChangeNone, false
 	}
 
+	if Ctx.PatchOnly {
+		log.Warnf("Cannot determine change type for non-semver dependency version '%s' -> '%s', skipping update due to patch-only mode", currentVersion.String(), latestVersion.String())
+		return SemverChangeNone, false
+	}
+
 	return SemverChangeInvalid, true
 }
 
