@@ -203,7 +203,7 @@ func updateDependencies(deps []DependencyJSON) ([]DependencyUpdate, error) {
 func classifyDependencyUpdate(currentVersion DependencyVersion, latestVersion DependencyVersion) (SemverChange, bool) {
 	if currentVersion.HasSemver && latestVersion.HasSemver {
 		changeType := currentVersion.Semver.ChangeType(latestVersion.Semver)
-		if Ctx.PatchOnly && (changeType != SemverChangePatch || changeType == SemverChangeRevision) {
+		if Ctx.PatchOnly && changeType != SemverChangePatch {
 			return changeType, false
 		}
 		return changeType, changeType != SemverChangeNone && changeType != SemverChangeDowngrade
