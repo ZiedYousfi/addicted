@@ -334,6 +334,54 @@ func TestGetNPMPackageLatestVersion(t *testing.T) {
 	})
 }
 
+func TestGetOtherNPMPackageVersions(t *testing.T) {
+	t.Run("uses versions metadata only", func(t *testing.T) {
+		client := newRegistryClient(t, func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, `{
+				"time":{"created":"2020-01-01T00:00:00.000Z","modified":"2020-01-02T00:00:00.000Z","1.0.0":"2020-01-01T00:00:00.000Z"},
+				"versions":{"1.0.0":{},"1.0.1":{}}
+			}`)
+		})
+
+		withTestContext(t, Context{HTTPClient: client})
+
+		versions, err := getOtherNPMPackageVersions("react")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		got := map[string]bool{}
+		for _, version := range versions {
+			got[version] = true
+		}
+		want := map[string]bool{"1.0.0": true, "1.0.1": true}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("expected versions %v, got %v", want, got)
+		}
+	})
+
+	t.Run("falls back to default client", func(t *testing.T) {
+		client := newRegistryClient(t, func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, `{"versions":{"2.0.0":{}}}`)
+		})
+		previousDefaultClient := http.DefaultClient
+		http.DefaultClient = client
+		t.Cleanup(func() {
+			http.DefaultClient = previousDefaultClient
+		})
+
+		withTestContext(t, Context{})
+
+		versions, err := getOtherNPMPackageVersions("react")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if !reflect.DeepEqual(versions, []string{"2.0.0"}) {
+			t.Fatalf("expected default client version, got %v", versions)
+		}
+	})
+}
+
 func TestProcessNPMPackage(t *testing.T) {
 	t.Run("updates dependencies and preserves document fields", func(t *testing.T) {
 		tempDir := t.TempDir()

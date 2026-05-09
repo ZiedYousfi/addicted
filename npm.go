@@ -126,7 +126,7 @@ func getOtherNPMPackageVersions(packageName string) ([]string, error) {
 	registryURL := "https://registry.npmjs.org/" + url.PathEscape(packageName)
 	client := Ctx.HTTPClient
 	if client == nil {
-		return []string{}, fmt.Errorf("no HTTP client available")
+		client = http.DefaultClient
 	}
 
 	resp, err := client.Get(registryURL)
@@ -140,15 +140,15 @@ func getOtherNPMPackageVersions(packageName string) ([]string, error) {
 	}
 
 	var result struct {
-		Time map[string]string `json:"time"`
+		Versions map[string]json.RawMessage `json:"versions"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return []string{}, fmt.Errorf("JSON decode error: %w", err)
 	}
 
-	versions := make([]string, 0, len(result.Time))
-	for version := range result.Time {
+	versions := make([]string, 0, len(result.Versions))
+	for version := range result.Versions {
 		versions = append(versions, version)
 	}
 
