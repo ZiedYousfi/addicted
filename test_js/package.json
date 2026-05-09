@@ -10,6 +10,9 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "adb-wifi": "^0.1.1"
+    "adb-wifi": "^0.1.1",
+    "left-pad": "1.1.2",
+    "@docusaurus/core": "3.6.2-canary-6154",
+    "react": "18.3.0"
   }
 }

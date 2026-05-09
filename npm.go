@@ -122,6 +122,162 @@ func getNPMPackageLatestVersion(packageName string) (string, error) {
 	return result.Version, nil
 }
 
+func getOtherNPMPackageVersions(packageName string) ([]string, error) {
+	registryURL := "https://registry.npmjs.org/" + url.PathEscape(packageName)
+	client := Ctx.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	resp, err := client.Get(registryURL)
+	if err != nil {
+		return []string{}, fmt.Errorf("request error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return []string{}, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Versions map[string]json.RawMessage `json:"versions"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return []string{}, fmt.Errorf("JSON decode error: %w", err)
+	}
+
+	versions := make([]string, 0, len(result.Versions))
+	for version := range result.Versions {
+		versions = append(versions, version)
+	}
+
+	return versions, nil
+}
+
+func updateDependencies(deps []DependencyJSON) ([]DependencyUpdate, error) {
+	updates := make([]DependencyUpdate, 0)
+
+	for i, dep := range deps {
+		log.Debugf("Dependency : %s, version : %s", dep.Name, dep.Version.String())
+		if dep.Name == "" {
+			log.Warnf("Dependency name is empty, skipping...")
+			continue
+		}
+
+		latestVersionString, err := getNPMPackageLatestVersion(dep.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch latest version for %s: %w", dep.Name, err)
+		}
+
+		latestVersion := parseDependencyVersion(latestVersionString)
+		log.Debugf("Latest version of %s : %s", dep.Name, latestVersion.String())
+
+		changeType, shouldUpdate := classifyDependencyUpdate(dep.Version, latestVersion)
+		if changeType == SemverChangeDowngrade {
+			log.Warnf("Dependency %s current version %s is newer than registry latest %s, keeping current version", dep.Name, dep.Version.String(), latestVersion.String())
+			continue
+		}
+
+		if !shouldUpdate {
+			if !Ctx.PatchOnly || !dep.Version.HasSemver {
+				log.Debugf("Dependency %s won't update (%s)", dep.Name, changeType)
+				continue
+			}
+
+			patchVersion, ok, err := getLatestPatchNPMPackageVersion(dep.Name, dep.Version)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch other versions for %s: %w", dep.Name, err)
+			}
+			if !ok {
+				log.Debugf("Dependency %s has no available patch update", dep.Name)
+				continue
+			}
+
+			latestVersion = patchVersion
+		}
+
+		updatedVersion := mergeDependencyVersion(dep.Version, latestVersion)
+		updates = append(updates, DependencyUpdate{Name: dep.Name, Before: dep.Version, After: updatedVersion})
+		dep.Version = updatedVersion
+		deps[i] = dep
+	}
+	return updates, nil
+}
+
+func getLatestPatchNPMPackageVersion(packageName string, currentVersion DependencyVersion) (DependencyVersion, bool, error) {
+	versions, err := getOtherNPMPackageVersions(packageName)
+	if err != nil {
+		return DependencyVersion{}, false, err
+	}
+
+	var latestPatch DependencyVersion
+	foundPatch := false
+	for _, version := range versions {
+		versionToCheck := parseDependencyVersion(version)
+		changeTypeForVersionToCheck, shouldUpdateForVersionToCheck := classifyDependencyUpdate(currentVersion, versionToCheck)
+		if !shouldUpdateForVersionToCheck || changeTypeForVersionToCheck != SemverChangePatch {
+			continue
+		}
+
+		if !foundPatch || latestPatch.Semver.LessThan(versionToCheck.Semver) {
+			latestPatch = versionToCheck
+			foundPatch = true
+		}
+	}
+
+	return latestPatch, foundPatch, nil
+}
+
+func classifyDependencyUpdate(currentVersion DependencyVersion, latestVersion DependencyVersion) (SemverChange, bool) {
+	if currentVersion.HasSemver && latestVersion.HasSemver {
+		changeType := currentVersion.Semver.ChangeType(latestVersion.Semver)
+		if Ctx.PatchOnly && changeType != SemverChangePatch {
+			return changeType, false
+		}
+		return changeType, changeType != SemverChangeNone && changeType != SemverChangeDowngrade
+	}
+
+	if currentVersion.String() == latestVersion.String() {
+		return SemverChangeNone, false
+	}
+
+	if Ctx.PatchOnly {
+		log.Warnf("Cannot determine change type for non-semver dependency version '%s' -> '%s', skipping update due to patch-only mode", currentVersion.String(), latestVersion.String())
+		return SemverChangeNone, false
+	}
+
+	return SemverChangeInvalid, true
+}
+
+func mergeDependencyVersion(currentVersion DependencyVersion, latestVersion DependencyVersion) DependencyVersion {
+	if currentVersion.HasSemver && latestVersion.HasSemver {
+		mergedSemver := latestVersion.Semver
+		// Keep a revision suffix only when both versions refer to the same
+		// semantic core; otherwise an old revision would be carried onto a new
+		// base version like 1.2.4_1.
+		if currentVersion.Semver.HasRevision && !latestVersion.Semver.HasRevision && semverCoreEqual(currentVersion.Semver, latestVersion.Semver) {
+			mergedSemver.Revision = currentVersion.Semver.Revision
+			mergedSemver.HasRevision = true
+		}
+		return currentVersion.WithSemver(mergedSemver)
+	}
+
+	return latestVersion
+}
+
+func semverCoreEqual(left Semver, right Semver) bool {
+	return left.Major == right.Major && left.Minor == right.Minor && left.Patch == right.Patch
+}
+
+func depsToMap(deps []DependencyJSON) map[string]string {
+	depsMap := make(map[string]string, len(deps))
+	for _, dep := range deps {
+		depsMap[dep.Name] = dep.Version.String()
+	}
+	return depsMap
+}
+
 func outputLogger() *log.Logger {
 	if Ctx.Logger != nil {
 		return Ctx.Logger
@@ -161,84 +317,6 @@ func printDependencyUpdates(packagePath string, section string, updates []Depend
 	for _, update := range updates {
 		logger.Print("- " + update.String())
 	}
-}
-
-func updateDependencies(deps []DependencyJSON) ([]DependencyUpdate, error) {
-	updates := make([]DependencyUpdate, 0)
-
-	for i, dep := range deps {
-		log.Debugf("Dependency : %s, version : %s", dep.Name, dep.Version.String())
-		if dep.Name == "" {
-			log.Warnf("Dependency name is empty, skipping...")
-			continue
-		}
-
-		latestVersionString, err := getNPMPackageLatestVersion(dep.Name)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch latest version for %s: %w", dep.Name, err)
-		}
-
-		latestVersion := parseDependencyVersion(latestVersionString)
-		log.Debugf("Latest version of %s : %s", dep.Name, latestVersion.String())
-
-		changeType, shouldUpdate := classifyDependencyUpdate(dep.Version, latestVersion)
-		if changeType == SemverChangeDowngrade {
-			log.Warnf("Dependency %s current version %s is newer than registry latest %s, keeping current version", dep.Name, dep.Version.String(), latestVersion.String())
-			continue
-		}
-
-		if !shouldUpdate {
-			log.Debugf("Dependency %s already up to date (%s)", dep.Name, changeType)
-			continue
-		}
-
-		updatedVersion := mergeDependencyVersion(dep.Version, latestVersion)
-		updates = append(updates, DependencyUpdate{Name: dep.Name, Before: dep.Version, After: updatedVersion})
-		dep.Version = updatedVersion
-		deps[i] = dep
-	}
-	return updates, nil
-}
-
-func classifyDependencyUpdate(currentVersion DependencyVersion, latestVersion DependencyVersion) (SemverChange, bool) {
-	if currentVersion.HasSemver && latestVersion.HasSemver {
-		changeType := currentVersion.Semver.ChangeType(latestVersion.Semver)
-		return changeType, changeType != SemverChangeNone && changeType != SemverChangeDowngrade
-	}
-
-	if currentVersion.String() == latestVersion.String() {
-		return SemverChangeNone, false
-	}
-
-	return SemverChangeInvalid, true
-}
-
-func mergeDependencyVersion(currentVersion DependencyVersion, latestVersion DependencyVersion) DependencyVersion {
-	if currentVersion.HasSemver && latestVersion.HasSemver {
-		mergedSemver := latestVersion.Semver
-		// Keep a revision suffix only when both versions refer to the same
-		// semantic core; otherwise an old revision would be carried onto a new
-		// base version like 1.2.4_1.
-		if currentVersion.Semver.HasRevision && !latestVersion.Semver.HasRevision && semverCoreEqual(currentVersion.Semver, latestVersion.Semver) {
-			mergedSemver.Revision = currentVersion.Semver.Revision
-			mergedSemver.HasRevision = true
-		}
-		return currentVersion.WithSemver(mergedSemver)
-	}
-
-	return latestVersion
-}
-
-func semverCoreEqual(left Semver, right Semver) bool {
-	return left.Major == right.Major && left.Minor == right.Minor && left.Patch == right.Patch
-}
-
-func depsToMap(deps []DependencyJSON) map[string]string {
-	depsMap := make(map[string]string, len(deps))
-	for _, dep := range deps {
-		depsMap[dep.Name] = dep.Version.String()
-	}
-	return depsMap
 }
 
 func processNPMPackage(packagePath string) error {

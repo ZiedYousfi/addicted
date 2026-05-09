@@ -22,8 +22,9 @@ type Context struct {
 	Logger          *log.Logger
 
 	// Flags
-	DryRun  bool
-	Verbose bool
+	DryRun    bool
+	PatchOnly bool
+	Verbose   bool
 }
 
 var Ctx = Context{
@@ -32,5 +33,6 @@ var Ctx = Context{
 	HTTPClient:      &http.Client{Timeout: 5 * time.Second},
 	Logger:          log.Default(),
 	DryRun:          false,
+	PatchOnly:       false,
 	Verbose:         false,
 }
