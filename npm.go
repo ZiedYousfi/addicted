@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -164,14 +163,12 @@ func updateDependencies(deps []DependencyJSON) ([]DependencyUpdate, error) {
 		updates = make([]DependencyUpdate, 0)
 	)
 
-	g, _ := errgroup.WithContext(context.Background())
+	var g errgroup.Group
 
-	// Rate limits hihi
+	// Cap concurrent npm registry requests to avoid overwhelming the host.
 	g.SetLimit(8)
 
 	for i := range deps {
-		i := i
-
 		g.Go(func() error {
 			dep := deps[i]
 
