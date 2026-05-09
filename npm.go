@@ -122,45 +122,37 @@ func getNPMPackageLatestVersion(packageName string) (string, error) {
 	return result.Version, nil
 }
 
-func outputLogger() *log.Logger {
-	if Ctx.Logger != nil {
-		return Ctx.Logger
+func getOtherNPMPackageVersions(packageName string) ([]string, error) {
+	registryURL := "https://registry.npmjs.org/" + url.PathEscape(packageName)
+	client := Ctx.HTTPClient
+	if client == nil {
+		return []string{}, fmt.Errorf("no HTTP client available")
 	}
 
-	return log.Default()
-}
+	resp, err := client.Get(registryURL)
+	if err != nil {
+		return []string{}, fmt.Errorf("request error: %w", err)
+	}
+	defer resp.Body.Close()
 
-func formatDependencyDiff(before DependencyVersion, after DependencyVersion) string {
-	if before.HasSemver && after.HasSemver {
-		if before.Prefix == "" && after.Prefix == "" {
-			return before.Semver.Diff(after.Semver)
-		}
-
-		return fmt.Sprintf("%s -> %s (%s)", before.String(), after.String(), before.Semver.ChangeType(after.Semver))
+	if resp.StatusCode != http.StatusOK {
+		return []string{}, fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
 
-	return fmt.Sprintf("%s -> %s", before.String(), after.String())
-}
-
-func (update DependencyUpdate) String() string {
-	return fmt.Sprintf("%s: %s", update.Name, formatDependencyDiff(update.Before, update.After))
-}
-
-func printDependencyUpdates(packagePath string, section string, updates []DependencyUpdate) {
-	if len(updates) == 0 {
-		return
+	var result struct {
+		Time map[string]string `json:"time"`
 	}
 
-	action := "Updated"
-	if Ctx.DryRun {
-		action = "Would update"
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return []string{}, fmt.Errorf("JSON decode error: %w", err)
 	}
 
-	logger := outputLogger()
-	logger.Print(action + " " + section + " in " + packagePath + ":")
-	for _, update := range updates {
-		logger.Print("- " + update.String())
+	versions := make([]string, 0, len(result.Time))
+	for version := range result.Time {
+		versions = append(versions, version)
 	}
+
+	return versions, nil
 }
 
 func updateDependencies(deps []DependencyJSON) ([]DependencyUpdate, error) {
@@ -188,8 +180,21 @@ func updateDependencies(deps []DependencyJSON) ([]DependencyUpdate, error) {
 		}
 
 		if !shouldUpdate {
-			log.Debugf("Dependency %s won't update (%s)", dep.Name, changeType)
-			continue
+			if !Ctx.PatchOnly || !dep.Version.HasSemver {
+				log.Debugf("Dependency %s won't update (%s)", dep.Name, changeType)
+				continue
+			}
+
+			patchVersion, ok, err := getLatestPatchNPMPackageVersion(dep.Name, dep.Version)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch other versions for %s: %w", dep.Name, err)
+			}
+			if !ok {
+				log.Debugf("Dependency %s has no available patch update", dep.Name)
+				continue
+			}
+
+			latestVersion = patchVersion
 		}
 
 		updatedVersion := mergeDependencyVersion(dep.Version, latestVersion)
@@ -198,6 +203,30 @@ func updateDependencies(deps []DependencyJSON) ([]DependencyUpdate, error) {
 		deps[i] = dep
 	}
 	return updates, nil
+}
+
+func getLatestPatchNPMPackageVersion(packageName string, currentVersion DependencyVersion) (DependencyVersion, bool, error) {
+	versions, err := getOtherNPMPackageVersions(packageName)
+	if err != nil {
+		return DependencyVersion{}, false, err
+	}
+
+	var latestPatch DependencyVersion
+	foundPatch := false
+	for _, version := range versions {
+		versionToCheck := parseDependencyVersion(version)
+		changeTypeForVersionToCheck, shouldUpdateForVersionToCheck := classifyDependencyUpdate(currentVersion, versionToCheck)
+		if !shouldUpdateForVersionToCheck || changeTypeForVersionToCheck != SemverChangePatch {
+			continue
+		}
+
+		if !foundPatch || latestPatch.Semver.LessThan(versionToCheck.Semver) {
+			latestPatch = versionToCheck
+			foundPatch = true
+		}
+	}
+
+	return latestPatch, foundPatch, nil
 }
 
 func classifyDependencyUpdate(currentVersion DependencyVersion, latestVersion DependencyVersion) (SemverChange, bool) {
@@ -247,6 +276,47 @@ func depsToMap(deps []DependencyJSON) map[string]string {
 		depsMap[dep.Name] = dep.Version.String()
 	}
 	return depsMap
+}
+
+func outputLogger() *log.Logger {
+	if Ctx.Logger != nil {
+		return Ctx.Logger
+	}
+
+	return log.Default()
+}
+
+func formatDependencyDiff(before DependencyVersion, after DependencyVersion) string {
+	if before.HasSemver && after.HasSemver {
+		if before.Prefix == "" && after.Prefix == "" {
+			return before.Semver.Diff(after.Semver)
+		}
+
+		return fmt.Sprintf("%s -> %s (%s)", before.String(), after.String(), before.Semver.ChangeType(after.Semver))
+	}
+
+	return fmt.Sprintf("%s -> %s", before.String(), after.String())
+}
+
+func (update DependencyUpdate) String() string {
+	return fmt.Sprintf("%s: %s", update.Name, formatDependencyDiff(update.Before, update.After))
+}
+
+func printDependencyUpdates(packagePath string, section string, updates []DependencyUpdate) {
+	if len(updates) == 0 {
+		return
+	}
+
+	action := "Updated"
+	if Ctx.DryRun {
+		action = "Would update"
+	}
+
+	logger := outputLogger()
+	logger.Print(action + " " + section + " in " + packagePath + ":")
+	for _, update := range updates {
+		logger.Print("- " + update.String())
+	}
 }
 
 func processNPMPackage(packagePath string) error {
