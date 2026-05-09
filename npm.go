@@ -7,9 +7,11 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/log"
+	"golang.org/x/sync/errgroup"
 )
 
 type PackageJSONRaw struct {
@@ -156,52 +158,87 @@ func getOtherNPMPackageVersions(packageName string) ([]string, error) {
 }
 
 func updateDependencies(deps []DependencyJSON) ([]DependencyUpdate, error) {
-	updates := make([]DependencyUpdate, 0)
+	var (
+		mu      sync.Mutex
+		updates = make([]DependencyUpdate, 0)
+	)
 
-	for i, dep := range deps {
-		log.Debugf("Dependency : %s, version : %s", dep.Name, dep.Version.String())
-		if dep.Name == "" {
-			log.Warnf("Dependency name is empty, skipping...")
-			continue
-		}
+	var g errgroup.Group
 
-		latestVersionString, err := getNPMPackageLatestVersion(dep.Name)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch latest version for %s: %w", dep.Name, err)
-		}
+	// Cap concurrent npm registry requests to avoid overwhelming the host.
+	g.SetLimit(8)
 
-		latestVersion := parseDependencyVersion(latestVersionString)
-		log.Debugf("Latest version of %s : %s", dep.Name, latestVersion.String())
+	for i := range deps {
+		g.Go(func() error {
+			dep := deps[i]
 
-		changeType, shouldUpdate := classifyDependencyUpdate(dep.Version, latestVersion)
-		if changeType == SemverChangeDowngrade {
-			log.Warnf("Dependency %s current version %s is newer than registry latest %s, keeping current version", dep.Name, dep.Version.String(), latestVersion.String())
-			continue
-		}
+			log.Debugf("Dependency : %s, version : %s", dep.Name, dep.Version.String())
 
-		if !shouldUpdate {
-			if !Ctx.PatchOnly || !dep.Version.HasSemver {
-				log.Debugf("Dependency %s won't update (%s)", dep.Name, changeType)
-				continue
+			if dep.Name == "" {
+				log.Warnf("Dependency name is empty, skipping...")
+				return nil
 			}
 
-			patchVersion, ok, err := getLatestPatchNPMPackageVersion(dep.Name, dep.Version)
+			latestVersionString, err := getNPMPackageLatestVersion(dep.Name)
 			if err != nil {
-				return nil, fmt.Errorf("failed to fetch other versions for %s: %w", dep.Name, err)
-			}
-			if !ok {
-				log.Debugf("Dependency %s has no available patch update", dep.Name)
-				continue
+				return fmt.Errorf("failed to fetch latest version for %s: %w", dep.Name, err)
 			}
 
-			latestVersion = patchVersion
-		}
+			latestVersion := parseDependencyVersion(latestVersionString)
+			log.Debugf("Latest version of %s : %s", dep.Name, latestVersion.String())
 
-		updatedVersion := mergeDependencyVersion(dep.Version, latestVersion)
-		updates = append(updates, DependencyUpdate{Name: dep.Name, Before: dep.Version, After: updatedVersion})
-		dep.Version = updatedVersion
-		deps[i] = dep
+			changeType, shouldUpdate := classifyDependencyUpdate(dep.Version, latestVersion)
+			if changeType == SemverChangeDowngrade {
+				log.Warnf(
+					"Dependency %s current version %s is newer than registry latest %s, keeping current version",
+					dep.Name,
+					dep.Version.String(),
+					latestVersion.String(),
+				)
+				return nil
+			}
+
+			if !shouldUpdate {
+				if !Ctx.PatchOnly || !dep.Version.HasSemver {
+					log.Debugf("Dependency %s won't update (%s)", dep.Name, changeType)
+					return nil
+				}
+
+				patchVersion, ok, err := getLatestPatchNPMPackageVersion(dep.Name, dep.Version)
+				if err != nil {
+					return fmt.Errorf("failed to fetch other versions for %s: %w", dep.Name, err)
+				}
+				if !ok {
+					log.Debugf("Dependency %s has no available patch update", dep.Name)
+					return nil
+				}
+
+				latestVersion = patchVersion
+			}
+
+			updatedVersion := mergeDependencyVersion(dep.Version, latestVersion)
+
+			update := DependencyUpdate{
+				Name:   dep.Name,
+				Before: dep.Version,
+				After:  updatedVersion,
+			}
+
+			dep.Version = updatedVersion
+
+			mu.Lock()
+			deps[i] = dep
+			updates = append(updates, update)
+			mu.Unlock()
+
+			return nil
+		})
 	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
 	return updates, nil
 }
 
